@@ -11,6 +11,7 @@ unsigned long lastZeroCrossingTime = 0;
 unsigned long period = 0;
 float sumFrequency = 0; // Sum of frequency values
 int avgFreq;
+int rmsVolt;
 int sampleCount = 0;
 
 TaskHandle_t Task1;
@@ -31,10 +32,9 @@ void setup() {
 
 }
 
-int findRmsVolt(int values[], int avgOf, int size) {
+void findRmsVolt(int values[], int avgOf, int size) {
 
   sumOfSamples = 0;
-
   for (int j = 0; j < avgOf; j++) {
 
     for (int i = 0; i < size; i++) {
@@ -52,21 +52,20 @@ int findRmsVolt(int values[], int avgOf, int size) {
   }
 
   int peakValue = sumOfSamples / avgOf;
-  int rmsVolt = peakValue * 0.065753;
+  rmsVolt = peakValue * 0.065753;
 
-  Serial.print("ANALOG: ");
-  Serial.print(peakValue);
-  Serial.print(" RMS: ");
-  Serial.println(rmsVolt);
+  //  Serial.print("ANALOG: ");
+  //  Serial.print(peakValue);
+  //  Serial.print(" RMS: ");
+  //  Serial.println(rmsVolt);
 
-  return rmsVolt;
 }
 
 
 void calculateFrequency(int samples) {
   float frequency;
   int analogValue = analogRead(sensorPin);
-  float voltage = analogValue * (3.3 / 4095.0); // Convert analog value to voltage
+  float voltage = analogValue * (3.3 / 4095.0);
 
   if (voltage > 1) { // Assuming signal crosses zero at 1V (adjust as needed)
     if (millis() - lastZeroCrossingTime > 10) { // Ignore noise and debounce
@@ -81,21 +80,28 @@ void calculateFrequency(int samples) {
     avgFreq = sumFrequency / sampleCount;
     sumFrequency = 0;
     sampleCount = 0;
-    Serial.print("Frequency: ");
-    Serial.print(avgFreq);
-    Serial.println(" Hz");
+    //    Serial.print("Frequency: ");
+    //    Serial.print(avgFreq);
+    //    Serial.println(" Hz");
   }
 }
 
 void loop() {
 
   findRmsVolt(analogSamples, avgOf, sampleSize);
+  
+  Serial.print("RMS: ");
+  Serial.print(rmsVolt);
+  Serial.print("V");
+  Serial.print(" Frequency: ");
+  Serial.print(avgFreq);
+  Serial.println("Hz");
   //    delay(1000);
 }
 
 void loop1(void * parameter) {
 
   for (;;) {
-    calculateFrequency(30);
+    calculateFrequency(40);
   }
 }
