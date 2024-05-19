@@ -1,24 +1,37 @@
+#include "EmonLib.h"
+#include "Ticker.h"
 
-#define sensorPin 34
-
+#define vSensorPin 34
+#define iSensorPin 35
+#define currCalibration 1
 
 const int sampleSize = 1000;
 const int avgOf = 10;
+const int freqSamples = 10;
 int analogSamples[sampleSize];
 unsigned long sumOfSamples;
 
 unsigned long lastZeroCrossingTime = 0;
 unsigned long period = 0;
 float sumFrequency = 0; // Sum of frequency values
-int avgFreq;
+float avgFreq;
 int rmsVolt;
 int sampleCount = 0;
 
+EnergyMonitor emon;
 TaskHandle_t Task1;
+
+Ticker rmsVoltCalTimer;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(sensorPin, INPUT);
+
+  pinMode(vSensorPin, INPUT);
+  pinMode(iSensorPin, INPUT);
+
+  emon.current(iSensorPin, currCalibration);
+
+  rmsVoltCalTimer.attach(1, intervalRmsVoltMeasure);
 
   xTaskCreatePinnedToCore(
     loop1,
@@ -31,6 +44,9 @@ void setup() {
   delay(500);
 
 }
+void intervalRmsVoltMeasure() {
+  findRmsVolt(analogSamples, avgOf, sampleSize);
+}
 
 void findRmsVolt(int values[], int avgOf, int size) {
 
@@ -38,7 +54,7 @@ void findRmsVolt(int values[], int avgOf, int size) {
   for (int j = 0; j < avgOf; j++) {
 
     for (int i = 0; i < size; i++) {
-      analogSamples[i] = analogRead(sensorPin);
+      analogSamples[i] = analogRead(vSensorPin);
     }
 
     int highestValue = values[0];
@@ -52,19 +68,22 @@ void findRmsVolt(int values[], int avgOf, int size) {
   }
 
   int peakValue = sumOfSamples / avgOf;
-  rmsVolt = peakValue * 0.065753;
+  rmsVolt = peakValue * 0.10813397129;
 
   //  Serial.print("ANALOG: ");
   //  Serial.print(peakValue);
+  //  Serial.print(" ANALOG VOLT: ");
+  //  Serial.print(peakValue * (3.3 / 4095), 4);
   //  Serial.print(" RMS: ");
   //  Serial.println(rmsVolt);
 
 }
-
-
+void intervalFreqMeasure() {
+  calculateFrequency(freqSamples);
+}
 void calculateFrequency(int samples) {
   float frequency;
-  int analogValue = analogRead(sensorPin);
+  int analogValue = analogRead(vSensorPin);
   float voltage = analogValue * (3.3 / 4095.0);
 
   if (voltage > 1) { // Assuming signal crosses zero at 1V (adjust as needed)
@@ -87,21 +106,25 @@ void calculateFrequency(int samples) {
 }
 
 void loop() {
+  //  findRmsVolt(analogSamples, avgOf, sampleSize);
 
-  findRmsVolt(analogSamples, avgOf, sampleSize);
-  
-  Serial.print("RMS: ");
+  Serial.print(" RMS: ");
   Serial.print(rmsVolt);
   Serial.print("V");
+
+  //    Serial.print(" POWER: ");
+  //    Serial.print(rmsVolt * Irms);
+  //    Serial.print("W");
+
   Serial.print(" Frequency: ");
-  Serial.print(avgFreq);
+  Serial.print(avgFreq, 1);
   Serial.println("Hz");
-  //    delay(1000);
+  //  delay(500);
 }
 
 void loop1(void * parameter) {
 
   for (;;) {
-    calculateFrequency(40);
+    calculateFrequency(freqSamples);
   }
 }
