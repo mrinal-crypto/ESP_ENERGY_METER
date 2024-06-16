@@ -1,6 +1,8 @@
 #include <Adafruit_ADS1X15.h>
+#include <Preferences.h>
 
 Adafruit_ADS1115 ads;
+Preferences preferences;
 
 const int sampleSize = 300;
 float sumOfVSamples;
@@ -17,6 +19,10 @@ TaskHandle_t Task1;
 
 void setup() {
   Serial.begin(115200);
+
+  preferences.begin("energyMeter", false);
+  delay(100);
+  energykWh = preferences.getFloat("energykWh", 0.0);
 
   if (!ads.begin()) {
     Serial.println("Failed to initialize ADS.");
