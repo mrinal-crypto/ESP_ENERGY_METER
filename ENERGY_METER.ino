@@ -35,7 +35,7 @@ void setup() {
 
 }
 
-////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////
 void findRmsVoltCurrent(int samplesNo) {
 
   sumOfVSamples = 0;
@@ -80,9 +80,23 @@ void findRmsVoltCurrent(int samplesNo) {
   Serial.println("---------------------------------------------------");
 
 }
-////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
+void kwhCal() {
+  unsigned long currentTime = millis();
+  if (currentTime - lastTime >= interval) {
+    lastTime = currentTime;
+
+    energykWh += ((real_power / 1000.0) * (interval / 3600000.0));
+    preferences.putFloat("energykWh", energykWh);
+    
+    Serial.print("kWh: ");
+    Serial.println(energykWh, 4);
+  }
+}
+/////////////////////////////////////////////////////////////////////////
 void loop() {
   findRmsVoltCurrent(sampleSize);
+  kwhCal();
 }
 
 void loop1(void * parameter) {
