@@ -1,46 +1,27 @@
-#include "EmonLib.h"
-#include "Ticker.h"
+#include <Adafruit_ADS1X15.h>
 
-#define vSensorPin 39
-#define iSensorPin 35
-#define currCalibration 1
+Adafruit_ADS1115 ads;
 
-const int sampleSize = 200;
-const int avgOf = 20;
-const int freqSamples = 10;
-const int currentOffset = 1280; //offset value be measured when no current passing throgh CT
-
-int analogVSamples[sampleSize];
-int analogISamples[sampleSize];
-unsigned long sumOfVSamples;
-unsigned long sumOfISamples;
-
-unsigned long lastZeroCrossingTime = 0;
-unsigned long period = 0;
-float sumFrequency = 0; // Sum of frequency values
-float avgFreq;
-
-int rmsVolt;
-float vrmsCalibration = 142.2818;
+const int sampleSize = 300;
+float sumOfVSamples;
+float sumOfISamples;
+float gridVolt;
 float rmsCurrent;
-float power;
+float real_power;
+float energykWh;
 
-int sampleCount = 0;
+unsigned long lastTime = 0;
+const unsigned long interval = 500;
 
-EnergyMonitor emon;
 TaskHandle_t Task1;
-
-Ticker rmsVoltCalTimer;
 
 void setup() {
   Serial.begin(115200);
 
-  pinMode(vSensorPin, INPUT);
-  pinMode(iSensorPin, INPUT);
-
-  //  emon.current(iSensorPin, currCalibration);
-
-  rmsVoltCalTimer.attach(1, intervalOfRmsMeasure);
+  if (!ads.begin()) {
+    Serial.println("Failed to initialize ADS.");
+    while (1);
+  }
 
   xTaskCreatePinnedToCore(
     loop1,
@@ -53,103 +34,55 @@ void setup() {
   delay(500);
 
 }
-void intervalOfRmsMeasure() {
-  findRmsVoltCurrent(analogVSamples, analogISamples, avgOf, sampleSize);
-}
 
-void findRmsVoltCurrent(int vValues[], int iValues[], int avgOf, int size) {
+////////////////////////////////////////////////////////////////////////////////////////
+void findRmsVoltCurrent(int samplesNo) {
 
   sumOfVSamples = 0;
   sumOfISamples = 0;
 
-  for (int j = 0; j < avgOf; j++) {
+  for (int i = 1; i <= samplesNo; i++) {
+    int16_t analogSamples0 = ads.readADC_SingleEnded(0);
+    int16_t analogSamples1 = ads.readADC_SingleEnded(1);
 
-    for (int i = 0; i < size; i++) {
-      analogVSamples[i] = analogRead(vSensorPin);
-      analogISamples[i] = analogRead(iSensorPin);
-    }
+    float readVolt0 = ads.computeVolts(analogSamples0);
+    float readVolt1 = ads.computeVolts(analogSamples1);
 
-    int highestVvalue = vValues[0];
-    int highestIvalue = iValues[0];
+    sumOfVSamples += readVolt0 * readVolt0;
+    sumOfISamples += readVolt1 * readVolt1;
 
-    for (int i = 0; i < size; i++) {
-      if (vValues[i] > highestVvalue) {
-        highestVvalue = vValues[i];
-      }
-      if (iValues[i] > highestIvalue) {
-        highestIvalue = iValues[i];
-      }
-    }
-
-    sumOfVSamples += highestVvalue;
-    sumOfISamples += highestIvalue;
+    //    Serial.print("AIN0: ");
+    //    Serial.print(analogSamples);
+    //    Serial.print("  ");
+    //    Serial.print(readVolt);
+    //    Serial.print("V ");
+    //
+    //    Serial.println(sumOfVSamples);
   }
 
-  int peakVvalue = sumOfVSamples / avgOf;
-  int peakIvalue = sumOfISamples / avgOf;
-  int trueIvalue = abs(peakIvalue - currentOffset);
+  float meanSqVolt0 = sumOfVSamples / samplesNo;
+  float meanSqVolt1 = sumOfISamples / samplesNo;
 
-  rmsVolt = ((peakVvalue * (3.3 / 4095)) / 1.4142) * vrmsCalibration;
-  rmsCurrent = trueIvalue * 0.0168;
-  power = rmsVolt * rmsCurrent;
+  float rmsVolt0 = sqrt(meanSqVolt0);
+  float rmsVolt1 = sqrt(meanSqVolt1);
 
-  Serial.print("ANALOG: ");
-  Serial.print(peakVvalue);
-  Serial.print(" ANALOG VOLT: ");
-  Serial.print((peakVvalue * 3.3 / 4095)/1.4142, 4);
-  Serial.print(" RMS VOLT: ");
-  Serial.print(rmsVolt);
-  Serial.print(" CURRENT OFFSET: ");
-  Serial.print(peakIvalue);
-  Serial.print(" TRUE ANALOG I: ");
-  Serial.print(trueIvalue);
-  Serial.print(" RMS CURRENT: ");
+  gridVolt = (146.269 * rmsVolt0) + 14.161; //{(y-y1)/(y2-y1)}/{(x-x1)/(x2-x1)}
+  rmsCurrent = (13.136 * rmsVolt1) + 0.0156; //{(y-y1)/(y2-y1)}/{(x-x1)/(x2-x1)}
+  real_power = gridVolt * rmsCurrent;
+
+  Serial.println("---------------------------------------------------");
+  Serial.print("VOLTAGE(V): ");
+  Serial.print(gridVolt, 0);
+  Serial.print(" CURRENT(A): ");
   Serial.print(rmsCurrent, 2);
   Serial.print(" POWER(W): ");
-  Serial.println(power);
+  Serial.println(real_power, 1);
+  Serial.println("---------------------------------------------------");
 
 }
-void intervalFreqMeasure() {
-  calculateFrequency(freqSamples);
-}
-void calculateFrequency(int samples) {
-  float frequency;
-  int analogValue = analogRead(vSensorPin);
-  float voltage = analogValue * (3.3 / 4095.0);
-
-  if (voltage > 1) { // Assuming signal crosses zero at 1V (adjust as needed)
-    if (millis() - lastZeroCrossingTime > 10) { // Ignore noise and debounce
-      period = millis() - lastZeroCrossingTime;
-      frequency = 1000.0 / period; // Calculate frequency in Hz
-      lastZeroCrossingTime = millis();
-      sumFrequency += frequency;
-      sampleCount++;
-    }
-  }
-  if (sampleCount == samples) {
-    avgFreq = sumFrequency / sampleCount;
-    sumFrequency = 0;
-    sampleCount = 0;
-    //    Serial.print("Frequency: ");
-    //    Serial.print(avgFreq);
-    //    Serial.println(" Hz");
-  }
-}
-
+////////////////////////////////////////////////////////////////////////////////
 void loop() {
-  //    findRmsVoltCurrent(analogVSamples, analogISamples, avgOf, sampleSize);
-
-  //  Serial.print(" RMS: ");
-  //  Serial.print(rmsVolt);
-  //  Serial.print("V");
-
-  //    Serial.print(" POWER: ");
-
-
-  //  Serial.print(" Frequency: ");
-  //  Serial.print(avgFreq, 1);
-  //  Serial.println("Hz");
-  //  delay(500);
+  findRmsVoltCurrent(sampleSize);
 }
 
 void loop1(void * parameter) {
